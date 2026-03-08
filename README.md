@@ -4,7 +4,7 @@ Personal ATProto PDS — optimised for NixOS/Caddy, no Bluesky infrastructure de
 
 Wraps [`@atproto/pds`](https://github.com/bluesky-social/atproto) with:
 
-- **No Bluesky infra defaults** — no `bsky.network`, `api.bsky.app`, `mod.bsky.app`. Crawlers are opt-in via `PDS_CRAWLERS`.
+- **No Bluesky infra defaults** — no `api.bsky.app`, `mod.bsky.app` etc. wired in.
 - **`did:plc` supported** — via configurable `PDS_PLC_URL` (defaults to `plc.directory`, the canonical ATProto PLC registry).
 - **Rust identity layer** (`@moonstone/native`) — handle/DID syntax validation and async identity resolution backed by [`rsky-syntax`](https://github.com/blacksky-algorithms/rsky) and [`rsky-identity`](https://github.com/blacksky-algorithms/rsky) via neon N-API bindings.
 - **Typed, validated config** — zod schema, personal-PDS defaults, fast-fail on missing secrets.
@@ -44,15 +44,21 @@ PDS_ADMIN_PASSWORD=<openssl rand --hex 16>
 PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX=<see .env.example>
 ```
 
-## Bluesky federation
+## Federation
 
-By design, moonstone does **not** connect to Bluesky infrastructure by default. To opt into relay federation:
+moonstone defaults to the relay list from `nix-config options.nix` — a broad set of independent ATProto relays plus `bsky.network`. To use a different set, override `PDS_CRAWLERS` with a comma-separated list:
 
 ```sh
-PDS_CRAWLERS=https://bsky.network
+PDS_CRAWLERS=https://relay.cerulea.blue,https://relay.feeds.blue
 ```
 
-`did:plc` resolution still uses `plc.directory` by default — this is an ATProto protocol dependency, not a Bluesky product. Override with `PDS_PLC_URL` to point at a self-hosted PLC directory.
+To disable all relay announcements entirely:
+
+```sh
+PDS_CRAWLERS=
+```
+
+`did:plc` resolution uses `plc.directory` by default — an ATProto protocol dependency, not a Bluesky product. Override with `PDS_PLC_URL` to point at a self-hosted PLC directory.
 
 ## NixOS
 
