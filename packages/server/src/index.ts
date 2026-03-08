@@ -1,11 +1,8 @@
-import {
-  PDS,
-  envToCfg,
-  envToSecrets,
-  httpLogger,
-} from '@atproto/pds'
+import events from 'node:events'
+import http from 'node:http'
+import { createHttpTerminator } from 'http-terminator'
+import { PDS, envToCfg, envToSecrets, httpLogger } from '@atproto/pds'
 import { parseEnv, toAtprotoEnv } from '@ewanc26/moonstone-config'
-import { mountRoutes } from './routes.js'
 import { validateStartup } from './validate.js'
 
 // ---------------------------------------------------------------------------
@@ -16,9 +13,8 @@ async function main(): Promise<void> {
   // 1. Parse + validate env — fast-fail on missing/invalid config
   const moonstoneEnv = parseEnv(process.env)
 
-  // 2. Run startup validation using the Rust native addon (rsky-syntax +
-  //    rsky-identity). This catches bad hostname/DID format before the PDS
-  //    attempts any network calls.
+  // 2. Startup validation using the Rust native addon (rsky-syntax +
+  //    rsky-identity). Catches bad hostname/DID format before network calls.
   await validateStartup(moonstoneEnv)
 
   // 3. Build @atproto/pds config + secrets from our validated env
@@ -30,10 +26,19 @@ async function main(): Promise<void> {
     plcRotationKey: moonstoneEnv.PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX,
   } as Parameters<typeof envToSecrets>[0])
 
-  // 4. Create + mount extra routes + start
+  // 4. Create the upstream PDS instance — this registers all standard
+  //    @atproto/pds XRPC handlers on its internal XRPC router.
   const pds = await PDS.create(cfg, secrets)
-  mountRoutes(pds)
-  await pds.start()
+
+  // 5. Manual HTTP lifecycle — mirrors PDS.start() but gives us control over
+  //    the HTTP server for graceful shutdown via http-terminator.
+  await pds.ctx.sequencer.start()
+
+  const httpServer = http.createServer(pds.app)
+  const terminator = createHttpTerminator({ server: httpServer })
+  httpServer.keepAliveTimeout = 90000
+  httpServer.listen(cfg.service.port)
+  await events.once(httpServer, 'listening')
 
   httpLogger.info(
     {
@@ -47,10 +52,16 @@ async function main(): Promise<void> {
     'moonstone started',
   )
 
-  // 5. Graceful shutdown (systemd SIGTERM / NixOS service stop)
+  // 6. Graceful shutdown — replicates PDS.destroy() directly since we own
+  //    the HTTP server and terminator (pds.start() was never called).
   const shutdown = async () => {
     httpLogger.info('moonstone shutting down')
-    await pds.destroy()
+    await pds.ctx.sequencer.destroy()
+    await terminator.terminate()
+    await pds.ctx.backgroundQueue.destroy()
+    await pds.ctx.accountManager.close()
+    await pds.ctx.redisScratch?.quit()
+    await pds.ctx.proxyAgent.destroy()
     httpLogger.info('moonstone stopped')
     process.exit(0)
   }

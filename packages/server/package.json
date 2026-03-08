@@ -19,10 +19,14 @@
   },
   "dependencies": {
     "@atproto/pds": "^0.4.208",
+    "@atproto/syntax": "^0.3.1",
     "@ewanc26/moonstone-config": "workspace:*",
-    "@ewanc26/moonstone-native": "workspace:*"
+    "@ewanc26/moonstone-native": "workspace:*",
+    "express": "^4.21.2",
+    "http-terminator": "^3.2.0"
   },
   "devDependencies": {
+    "@types/express": "^4.17.21",
     "@types/node": "^20.0.0",
     "tsup": "^8.5.0",
     "typescript": "^5.9.3"
