@@ -1,0 +1,18 @@
+[package]
+name    = "moonstone-native"
+version = "0.1.0"
+edition = "2021"
+# cdylib → Node.js .node addon via neon
+[[lib]]
+crate-type = ["cdylib"]
+name       = "moonstone_native"
+
+[dependencies]
+neon       = { workspace = true }
+tokio      = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+once_cell  = { workspace = true }
+anyhow     = { workspace = true }
+rsky-syntax   = { workspace = true }
+rsky-identity = { workspace = true }

@@ -1,15 +1,17 @@
 {
   "name": "moonstone",
   "private": true,
-  "description": "Personal ATProto PDS — optimised for NixOS/Caddy deployment",
+  "description": "Personal ATProto PDS — no Bluesky infra defaults, Rust identity via rsky",
   "engines": {
     "node": ">=18",
     "pnpm": ">=9"
   },
   "scripts": {
-    "build": "pnpm -r run build",
-    "dev": "pnpm -r run dev",
-    "type-check": "pnpm -r run type-check",
-    "clean": "pnpm -r exec -- rm -rf dist"
+    "build:native": "pnpm --filter @moonstone/native build",
+    "build:ts": "pnpm -r --filter '!@moonstone/native' run build",
+    "build": "pnpm run build:native && pnpm run build:ts",
+    "dev": "pnpm run build:native && pnpm -r --filter '!@moonstone/native' run dev",
+    "type-check": "pnpm -r --filter '!@moonstone/native' run type-check",
+    "clean": "pnpm -r exec -- rm -rf dist && pnpm --filter @moonstone/native clean"
   }
 }

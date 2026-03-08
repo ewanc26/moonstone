@@ -1,0 +1,16 @@
+{
+  "name": "@moonstone/native",
+  "version": "0.1.0",
+  "description": "Rust native bindings for moonstone — syntax validation + identity resolution via rsky",
+  "type": "commonjs",
+  "main": "index.node",
+  "files": ["index.node"],
+  "scripts": {
+    "build": "cargo-cp-artifact -nc index.node -- cargo build --release --message-format=json-render-diagnostics",
+    "build:debug": "cargo-cp-artifact -nc index.node -- cargo build --message-format=json-render-diagnostics",
+    "clean": "rm -f index.node"
+  },
+  "dependencies": {
+    "cargo-cp-artifact": "^0.1.8"
+  }
+}
