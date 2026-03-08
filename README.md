@@ -1,42 +1,68 @@
 # moonstone
 
-Personal ATProto PDS implementation, optimised for NixOS/Caddy deployment.
+Personal ATProto PDS — optimised for NixOS/Caddy, no Bluesky infrastructure defaults.
 
 Wraps [`@atproto/pds`](https://github.com/bluesky-social/atproto) with:
 
-- **Full TypeScript + ESM** — no CJS entrypoints
-- **Typed, validated config** — zod schema, personal-PDS defaults, fast-fail on missing secrets
-- **Stripped defaults** — invites off, disk blobstore, no Redis, no email required
-- **NixOS module** at `nix/module.nix` — SOPS secrets, systemd service, Caddy virtualHost
+- **No Bluesky infra defaults** — no `bsky.network`, `api.bsky.app`, `mod.bsky.app`. Crawlers are opt-in via `PDS_CRAWLERS`.
+- **`did:plc` supported** — via configurable `PDS_PLC_URL` (defaults to `plc.directory`, the canonical ATProto PLC registry).
+- **Rust identity layer** (`@moonstone/native`) — handle/DID syntax validation and async identity resolution backed by [`rsky-syntax`](https://github.com/blacksky-algorithms/rsky) and [`rsky-identity`](https://github.com/blacksky-algorithms/rsky) via neon N-API bindings.
+- **Typed, validated config** — zod schema, personal-PDS defaults, fast-fail on missing secrets.
+- **Self-contained** — all dependencies declared within this repo (git deps for rsky crates; no path deps outside the folder).
+- **NixOS module** at `nix/module.nix` — SOPS secrets, systemd service, Caddy virtualHost.
 
 ## Packages
 
 | Package | Description |
 | --- | --- |
-| `@moonstone/config` | Env parsing + validation |
+| `@moonstone/config` | Env parsing + zod validation |
+| `@moonstone/native` | Rust native addon (neon) — syntax validation + DID/handle resolution |
 | `@moonstone/server` | PDS server entry point |
 
-## Usage
+## Quick start
 
 ```sh
-pnpm install
-pnpm build
+# 1. Build the Rust native addon
+pnpm run build:native
+
+# 2. Build TypeScript
+pnpm run build:ts
+
+# 3. Set env vars (see .env.example)
+cp .env.example .env && $EDITOR .env
+
+# 4. Run
 node packages/server/dist/index.js
 ```
 
-Required env vars (typically injected via SOPS):
+Required env vars (injected via SOPS in production):
 
-```
+```sh
 PDS_HOSTNAME=pds.example.com
 PDS_JWT_SECRET=<openssl rand --hex 16>
 PDS_ADMIN_PASSWORD=<openssl rand --hex 16>
-PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX=<see atproto docs>
+PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX=<see .env.example>
 ```
+
+## Bluesky federation
+
+By design, moonstone does **not** connect to Bluesky infrastructure by default. To opt into relay federation:
+
+```sh
+PDS_CRAWLERS=https://bsky.network
+```
+
+`did:plc` resolution still uses `plc.directory` by default — this is an ATProto protocol dependency, not a Bluesky product. Override with `PDS_PLC_URL` to point at a self-hosted PLC directory.
 
 ## NixOS
 
-See [`nix/module.nix`](./nix/module.nix) for the NixOS module and
-[`nix/README.md`](./nix/README.md) for integration notes.
+See [`nix/module.nix`](./nix/module.nix). Add to `nix-config`:
+
+```nix
+inputs.moonstone.url = "github:ewanc26/moonstone";
+# pass as specialArgs and import the module
+imports = [ inputs.moonstone.nixosModules.moonstone ];
+```
 
 ## License
 

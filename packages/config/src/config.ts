@@ -2,7 +2,7 @@ import path from 'node:path'
 import { EnvSchema, type MoonstoneEnv } from './env.js'
 
 // ---------------------------------------------------------------------------
-// Config types
+// Exported config shape
 // ---------------------------------------------------------------------------
 
 export type MoonstoneConfig = {
@@ -15,24 +15,18 @@ export type MoonstoneConfig = {
     devMode: boolean
     blobUploadLimit: number
   }
-  db: {
-    directory: string
-  }
-  blobstore: {
-    location: string
-    tempLocation?: string
-  }
+  db: { directory: string }
+  blobstore: { location: string; tempLocation?: string }
   identity: {
     plcUrl: string
     serviceHandleDomains: string[]
-    plcRotationKeyHex?: string
   }
+  email: { smtpUrl: string; fromAddress: string } | null
   crawlers: string[]
-  invites: { required: false }
 }
 
 // ---------------------------------------------------------------------------
-// Parsing
+// Parse + validate from process.env
 // ---------------------------------------------------------------------------
 
 export function parseEnv(raw: NodeJS.ProcessEnv = process.env): MoonstoneEnv {
@@ -47,23 +41,18 @@ export function parseEnv(raw: NodeJS.ProcessEnv = process.env): MoonstoneEnv {
 }
 
 export function buildConfig(env: MoonstoneEnv): MoonstoneConfig {
-  const dataDir = env.PDS_DATA_DIRECTORY
   const hostname = env.PDS_HOSTNAME
   const port = env.PDS_PORT
-  const publicUrl = hostname === 'localhost'
-    ? `http://localhost:${port}`
-    : `https://${hostname}`
-  const did = env.PDS_SERVICE_DID ?? `did:web:${hostname}`
-
-  const serviceHandleDomains =
-    env.PDS_SERVICE_HANDLE_DOMAINS ?? [`.${hostname}`]
+  const dataDir = env.PDS_DATA_DIRECTORY
 
   return {
     service: {
       port,
       hostname,
-      publicUrl,
-      did,
+      publicUrl: hostname === 'localhost'
+        ? `http://localhost:${port}`
+        : `https://${hostname}`,
+      did: env.PDS_SERVICE_DID ?? `did:web:${hostname}`,
       version: env.PDS_VERSION,
       devMode: env.PDS_DEV_MODE,
       blobUploadLimit: env.PDS_BLOB_UPLOAD_LIMIT,
@@ -75,55 +64,69 @@ export function buildConfig(env: MoonstoneEnv): MoonstoneConfig {
     },
     identity: {
       plcUrl: env.PDS_PLC_URL,
-      serviceHandleDomains,
-      plcRotationKeyHex: env.PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX,
+      serviceHandleDomains: env.PDS_SERVICE_HANDLE_DOMAINS ?? [`.${hostname}`],
     },
-    crawlers: env.PDS_CRAWLERS,
-    invites: { required: false },
+    email: env.PDS_EMAIL_SMTP_URL && env.PDS_EMAIL_FROM_ADDRESS
+      ? { smtpUrl: env.PDS_EMAIL_SMTP_URL, fromAddress: env.PDS_EMAIL_FROM_ADDRESS }
+      : null,
+    // Opt-in only — undefined means no crawlers registered.
+    crawlers: env.PDS_CRAWLERS ?? [],
   }
 }
 
 // ---------------------------------------------------------------------------
-// Bridge: MoonstoneEnv → @atproto/pds ServerEnvironment
+// Bridge: MoonstoneEnv → @atproto/pds ServerEnvironment shape
+//
+// @atproto/pds reads process.env via readEnv(). Rather than re-parsing from
+// scratch, we build the equivalent ServerEnvironment object so we can call
+// envToCfg() / envToSecrets() directly.
+//
+// Intentionally omitted (no Bluesky infrastructure):
+//   bskyAppViewUrl, bskyAppViewDid     — AppView is opt-out by default
+//   modServiceUrl, modServiceDid       — Mod service not wired in
+//   reportServiceUrl, reportServiceDid — Report service not wired in
 // ---------------------------------------------------------------------------
-// readEnv() from @atproto/pds reads process.env directly. To avoid re-parsing
-// from scratch we build the ServerEnvironment object matching its shape.
-// This keeps us decoupled from @atproto/pds internals while still delegating
-// the heavy lifting of envToCfg() / envToSecrets() to the official package.
 
-export function toAtprotoEnv(env: MoonstoneEnv) {
+export function toAtprotoEnv(env: MoonstoneEnv): Record<string, unknown> {
+  const hostname = env.PDS_HOSTNAME
+  const dataDir = env.PDS_DATA_DIRECTORY
+
   return {
-    // service
-    port: env.PDS_PORT,
-    hostname: env.PDS_HOSTNAME,
-    serviceDid: env.PDS_SERVICE_DID,
-    version: env.PDS_VERSION,
-    devMode: env.PDS_DEV_MODE,
-    blobUploadLimit: env.PDS_BLOB_UPLOAD_LIMIT,
+    port:                hostname === 'localhost' ? env.PDS_PORT : undefined,
+    hostname,
+    serviceDid:          env.PDS_SERVICE_DID,
+    version:             env.PDS_VERSION,
+    devMode:             env.PDS_DEV_MODE,
 
-    // db — all in data directory
-    dataDirectory: env.PDS_DATA_DIRECTORY,
+    // db
+    dataDirectory:       dataDir,
 
-    // blobstore — disk only
-    blobstoreDiskLocation:
-      env.PDS_BLOBSTORE_DISK_LOCATION ??
-      `${env.PDS_DATA_DIRECTORY}/blobs`,
+    // blobstore (disk)
+    blobstoreDiskLocation:    env.PDS_BLOBSTORE_DISK_LOCATION ?? `${dataDir}/blobs`,
     blobstoreDiskTmpLocation: env.PDS_BLOBSTORE_DISK_TMP_LOCATION,
+    blobUploadLimit:          env.PDS_BLOB_UPLOAD_LIMIT,
 
     // identity
-    didPlcUrl: env.PDS_PLC_URL,
-    plcRotationKey: env.PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX,
-    serviceHandleDomains: env.PDS_SERVICE_HANDLE_DOMAINS,
+    didPlcUrl:             env.PDS_PLC_URL,
+    plcRotationKey:        env.PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX,
+    serviceHandleDomains:  env.PDS_SERVICE_HANDLE_DOMAINS,
 
     // actor store
-    actorStoreCacheSize: env.PDS_ACTOR_STORE_CACHE_SIZE,
+    actorStoreCacheSize:  env.PDS_ACTOR_STORE_CACHE_SIZE,
 
-    // invites — always off for personal PDS
+    // invites — always off for a personal PDS
     inviteRequired: false,
 
-    // crawlers
-    crawlers: env.PDS_CRAWLERS,
+    // email — optional
+    ...(env.PDS_EMAIL_SMTP_URL && env.PDS_EMAIL_FROM_ADDRESS
+      ? { emailSmtpUrl: env.PDS_EMAIL_SMTP_URL, emailFromAddress: env.PDS_EMAIL_FROM_ADDRESS }
+      : {}),
 
-    // no Redis, no email, no mod service, no appview
+    // crawlers — opt-in only; empty array = no announcements
+    crawlers: env.PDS_CRAWLERS ?? [],
+
+    // Bluesky infra — intentionally absent unless the user explicitly sets
+    // these via process.env (the @atproto/pds envToCfg() will pick them up
+    // through the raw env if ever needed, but we don't default to them).
   }
 }

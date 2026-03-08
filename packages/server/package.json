@@ -1,7 +1,7 @@
 {
   "name": "@moonstone/server",
   "version": "0.1.0",
-  "description": "Personal ATProto PDS server",
+  "description": "Personal ATProto PDS server — no Bluesky infra defaults",
   "type": "module",
   "exports": {
     ".": {
@@ -19,8 +19,8 @@
   },
   "dependencies": {
     "@atproto/pds": "^0.4.208",
-    "@ewanc26/tid": "^1.1.0",
-    "@moonstone/config": "workspace:*"
+    "@moonstone/config": "workspace:*",
+    "@moonstone/native": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

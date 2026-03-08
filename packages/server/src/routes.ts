@@ -3,20 +3,21 @@ import type { Request, Response } from 'express'
 import { httpLogger } from '@atproto/pds'
 
 // ---------------------------------------------------------------------------
-// Extra routes mounted on the PDS express app
+// Extra routes
 // ---------------------------------------------------------------------------
 
 export function mountRoutes(pds: PDS): void {
-  // Health — used by systemd watchdog / Caddy health checks
+  // Health — systemd watchdog / Caddy health checks / monitoring
   pds.app.get('/health', (_req: Request, res: Response) => {
     res.json({
       status: 'ok',
-      version: pds.ctx.cfg.service.version ?? 'unknown',
+      version: pds.ctx.cfg.service.version ?? 'dev',
       hostname: pds.ctx.cfg.service.hostname,
+      did: pds.ctx.cfg.service.did,
     })
   })
 
-  // Handle / TLS check — required by Bluesky crawlers and goat tooling
+  // Handle / TLS check — required by goat tooling and Bluesky crawlers (if opted in)
   pds.app.get('/tls-check', async (req: Request, res: Response) => {
     try {
       const { domain } = req.query
