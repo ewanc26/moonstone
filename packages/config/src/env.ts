@@ -12,10 +12,11 @@ const commaSep = z
 // Schema
 // ---------------------------------------------------------------------------
 // Design constraints:
-//   - NO Bluesky infrastructure defaults (no api.bsky.app, mod.bsky.app, etc.)
+//   - NO third-party infrastructure defaults.
 //   - plc.directory is the default did:plc registry — this is an ATProto
-//     protocol dependency, not a Bluesky product. Override freely.
-//   - AppView, mod service, report service are entirely absent unless set.
+//     protocol dependency. Override freely via PDS_PLC_URL.
+//   - AppView, mod service, report service are absent unless explicitly set.
+//   - Crawlers default to empty — opt-in only.
 
 export const EnvSchema = z.object({
   // --- Required ----------------------------------------------------------------
@@ -25,8 +26,8 @@ export const EnvSchema = z.object({
   PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX: z.string().min(1),
 
   // --- Identity ----------------------------------------------------------------
-  // did:plc registry — defaults to plc.directory (protocol requirement, not
-  // Bluesky-specific; Bluesky just happens to operate the canonical one).
+  // did:plc registry — defaults to plc.directory (ATProto protocol standard).
+  // Override to use an alternative registry (e.g. self-hosted).
   PDS_PLC_URL: z.string().url().default('https://plc.directory'),
   // Override the service DID — defaults to did:web:<hostname>
   PDS_SERVICE_DID: z.string().optional(),
@@ -40,13 +41,12 @@ export const EnvSchema = z.object({
     .transform((v) => v === 'true' || v === '1')
     .default('false'),
 
-  // --- Blobstore (disk-only; S3 paths intentionally absent) ---------------------
-  PDS_BLOBSTORE_DISK_LOCATION: z.string().optional(), // defaults to DATA_DIRECTORY/blobs
+  // --- Blobstore (disk-only) ---------------------------------------------------
+  PDS_BLOBSTORE_DISK_LOCATION: z.string().optional(),
   PDS_BLOBSTORE_DISK_TMP_LOCATION: z.string().optional(),
-  PDS_BLOB_UPLOAD_LIMIT: z.coerce.number().int().positive().default(5 * 1024 * 1024), // 5 MiB
+  PDS_BLOB_UPLOAD_LIMIT: z.coerce.number().int().positive().default(5 * 1024 * 1024),
 
   // --- Handles -----------------------------------------------------------------
-  // Defaults to .<hostname>
   PDS_SERVICE_HANDLE_DOMAINS: commaSep.optional(),
 
   // --- Actor store -------------------------------------------------------------
@@ -56,35 +56,24 @@ export const EnvSchema = z.object({
   PDS_ADMIN_EMAIL: z.string().email().optional(),
 
   // --- Email -------------------------------------------------------------------
-  // Both must be set or neither — any partial config will throw at runtime.
   PDS_EMAIL_SMTP_URL: z.string().optional(),
   PDS_EMAIL_FROM_ADDRESS: z.string().email().optional(),
 
   // --- AppView -----------------------------------------------------------------
+  // Set both to proxy app.bsky.* (and other unhandled XRPC) to an AppView.
+  // The appView can be any ATProto AppView — Bluesky's or any alternative.
+  // PDS_APP_VIEW_URL / PDS_APP_VIEW_DID are the canonical names.
+  // PDS_BSKY_APP_VIEW_* are accepted as deprecated aliases.
+  PDS_APP_VIEW_URL: z.string().url().optional(),
+  PDS_APP_VIEW_DID: z.string().optional(),
+  // Deprecated aliases — still accepted, lower priority than canonical names.
   PDS_BSKY_APP_VIEW_URL: z.string().url().optional(),
   PDS_BSKY_APP_VIEW_DID: z.string().optional(),
 
   // --- Crawlers ----------------------------------------------------------------
-  // Defaults match the crawlers list in nix-config options.nix.
-  // Override by setting PDS_CRAWLERS to a comma-separated list, or set to an
-  // empty string to disable all announcements.
-  PDS_CRAWLERS: commaSep.default(
-    [
-      'https://bsky.network',
-      'https://relay.cerulea.blue',
-      'https://relay.fire.hose.cam',
-      'https://relay2.fire.hose.cam',
-      'https://relay3.fr.hose.cam',
-      'https://relay.hayescmd.net',
-      'https://relay.xero.systems',
-      'https://relay.upcloud.world',
-      'https://relay.feeds.blue',
-      'https://atproto.africa',
-      'https://northamerica.firehose.network',
-      'https://europe.firehose.network',
-      'https://asia.firehose.network',
-    ].join(','),
-  ),
+  // Defaults to empty — operators opt in to relay announcements.
+  // Set to a comma-separated list of relay URLs to enable.
+  PDS_CRAWLERS: commaSep.default(''),
 })
   .refine(
     (d) => !((d.PDS_EMAIL_SMTP_URL && !d.PDS_EMAIL_FROM_ADDRESS) ||

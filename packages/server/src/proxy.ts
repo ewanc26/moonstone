@@ -51,10 +51,10 @@ async function resolveProxyTarget(
     const did = proxyHeader.slice(0, hashIdx)
     // Short-circuit if it's our known AppView
     if (
-      ctx.cfg.bskyAppView &&
-      proxyHeader === `${ctx.cfg.bskyAppView.did}#bsky_appview`
+      ctx.cfg.appView &&
+      proxyHeader === `${ctx.cfg.appView.did}#bsky_appview`
     ) {
-      return { url: ctx.cfg.bskyAppView.url, did }
+      return { url: ctx.cfg.appView.url, did }
     }
     // Resolve via DID doc
     try {
@@ -72,8 +72,8 @@ async function resolveProxyTarget(
   }
 
   // 2. Fall back to configured AppView for app.bsky.* and friends
-  if (ctx.cfg.bskyAppView) {
-    return ctx.cfg.bskyAppView
+  if (ctx.cfg.appView) {
+    return ctx.cfg.appView
   }
 
   return null

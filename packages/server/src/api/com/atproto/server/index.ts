@@ -61,10 +61,81 @@ export function mountServerRoutes(router: Router, ctx: AppContext) {
 
       const normalizedHandle = ctx.accountManager.normalizeAndValidateHandle(handle)
 
+      // ── did:web native account creation ────────────────────────────────────
+      // If the caller provides a did:web DID, we verify the DID document
+      // already resolves and its #atproto_pds service points to this PDS.
+      // No PLC submission; the domain owner proves control via DNS + HTTPS.
+      // The account is created active — no migration dance needed.
+      if (inputDid && inputDid.startsWith('did:web:')) {
+        if (!email)    throw new InvalidRequestError('email is required for did:web account creation')
+        if (!password) throw new InvalidRequestError('password is required for did:web account creation')
+
+        // Verify DID document resolves and points to this PDS
+        let didDoc: Record<string, unknown> | undefined
+        try {
+          const resolved = await ctx.idResolver.did.resolve(inputDid)
+          if (!resolved) throw new Error('DID document not found')
+          didDoc = resolved as Record<string, unknown>
+        } catch (e) {
+          throw new InvalidRequestError(
+            `could not resolve did:web DID document for ${inputDid}: ${(e as Error).message}`,
+          )
+        }
+
+        // Confirm the DID doc's #atproto_pds service endpoint matches this PDS
+        const services: any[] = (didDoc['service'] as any[]) ?? []
+        const pdsSvc = services.find(
+          (s) => s.id === '#atproto_pds' || s.id === `${inputDid}#atproto_pds`,
+        )
+        if (!pdsSvc) {
+          throw new InvalidRequestError(
+            `did:web DID document for ${inputDid} has no #atproto_pds service entry`,
+          )
+        }
+        const declaredEndpoint: string = pdsSvc.serviceEndpoint ?? ''
+        if (declaredEndpoint.replace(/\/$/, '') !== ctx.cfg.service.publicUrl.replace(/\/$/, '')) {
+          throw new InvalidRequestError(
+            `did:web DID document declares PDS at ${declaredEndpoint}, but this server is ${ctx.cfg.service.publicUrl}`,
+          )
+        }
+
+        if (ctx.accountManager.getAccountByEmail(email)) {
+          throw new InvalidRequestError(`Email already taken: ${email}`)
+        }
+
+        const signingKey = await ctx.keyStore.getOrCreateKeypair(inputDid)
+        const commit = await ctx.actorStore.transact(inputDid, signingKey, (txn) =>
+          txn.createRepo([])
+        )
+        const { accessJwt, refreshJwt } = await ctx.accountManager.createAccountAndSession({
+          did: inputDid,
+          handle: normalizedHandle,
+          email,
+          password,
+          repoCid: commit.cid.toString(),
+          repoRev: commit.rev,
+          inviteCode,
+        })
+        ctx.accountManager.updateRepoRoot(inputDid, commit.cid.toString(), commit.rev)
+
+        await ctx.sequencer.sequenceIdentityEvt(inputDid, normalizedHandle)
+        await ctx.sequencer.sequenceAccountEvt(inputDid, AccountStatus.Active)
+        await ctx.sequencer.sequenceCommit(inputDid, commit)
+        void ctx.crawlers.notifyOfUpdate()
+
+        return res.json({
+          handle: normalizedHandle,
+          did: inputDid,
+          didDoc,
+          accessJwt,
+          refreshJwt,
+        })
+      }
+
       // ── Bring-your-own-DID (migration / deactivated-create) path ──────────
-      // When a `did` is provided the caller is migrating an existing account
-      // to this PDS.  We create the account in a deactivated state; the client
-      // calls activateAccount once the migration is complete.
+      // When a non-did:web `did` is provided the caller is migrating an
+      // existing account to this PDS.  We create it in a deactivated state;
+      // the client calls activateAccount once migration is complete.
       if (inputDid) {
         const signingKey = await ctx.keyStore.getOrCreateKeypair(inputDid)
         const commit = await ctx.actorStore.transact(inputDid, signingKey, (txn) =>
