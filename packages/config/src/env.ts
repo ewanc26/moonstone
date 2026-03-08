@@ -60,6 +60,10 @@ export const EnvSchema = z.object({
   PDS_EMAIL_SMTP_URL: z.string().optional(),
   PDS_EMAIL_FROM_ADDRESS: z.string().email().optional(),
 
+  // --- AppView -----------------------------------------------------------------
+  PDS_BSKY_APP_VIEW_URL: z.string().url().optional(),
+  PDS_BSKY_APP_VIEW_DID: z.string().optional(),
+
   // --- Crawlers ----------------------------------------------------------------
   // Defaults match the crawlers list in nix-config options.nix.
   // Override by setting PDS_CRAWLERS to a comma-separated list, or set to an

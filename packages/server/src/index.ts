@@ -1,4 +1,5 @@
 import http from 'node:http'
+import path from 'node:path'
 import express from 'express'
 import { createHttpTerminator } from 'http-terminator'
 import { parseEnv, buildConfig } from '@ewanc26/moonstone-config'
@@ -7,7 +8,8 @@ import { buildAppContext } from './context.js'
 import { validateStartup } from './validate.js'
 import { mountRoutes } from './routes.js'
 import { createXrpcOverrides } from './xrpc/index.js'
-import { buildApiRouter } from './api/index.js'
+import { buildApiRouter, attachSubscribeRepos } from './api/index.js'
+import { buildProxyHandler } from './proxy.js'
 import { logger } from './logger.js'
 
 // ---------------------------------------------------------------------------
@@ -21,10 +23,16 @@ const cfg = {
   ...buildConfig(env),
   jwtSecret: env.PDS_JWT_SECRET,
   adminPassword: env.PDS_ADMIN_PASSWORD,
+  blobsDir: env.PDS_BLOB_UPLOAD_LOCATION
+    ?? path.join(env.PDS_DATA_DIRECTORY ?? 'data', 'blobs'),
+  plcRotationKeyHex: env.PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX,
 }
 
 const db = openDb(cfg.db.directory)
-const ctx = buildAppContext(cfg, db)
+const ctx = await buildAppContext(cfg, db)
+
+// Start sequencer background poll
+ctx.sequencer.start()
 
 // ---------------------------------------------------------------------------
 // Express app
@@ -33,32 +41,41 @@ const ctx = buildAppContext(cfg, db)
 const app = express()
 app.use(express.json({ limit: '2mb' }))
 app.use(express.urlencoded({ extended: true }))
+// Raw body needed for blob uploads (uploadBlob, importRepo)
+app.use('/xrpc/com.atproto.repo.uploadBlob', express.raw({ type: '*/*', limit: '100mb' }))
+app.use('/xrpc/com.atproto.repo.importRepo', express.raw({ type: '*/*', limit: '200mb' }))
 
-// 1. XRPC overrides (identity endpoints not in the base ATProto lexicon)
+// 1. XRPC identity overrides (resolveDid, resolveIdentity, updateHandle, etc.)
 app.use(createXrpcOverrides(ctx))
 
-// 2. Our own com.atproto.server.* implementation
+// 2. All XRPC routes (server + repo + sync + admin)
 app.use(buildApiRouter(ctx))
 
-// 3. Non-XRPC routes (/tls-check etc.)
+// 3. Non-XRPC routes (/tls-check)
 mountRoutes(app, ctx)
 
-// 4. Health check (mirrors @atproto/pds /xrpc/_health)
+// 4. Health check
 app.get('/xrpc/_health', (_req, res) => {
   res.json({ version: cfg.service.version ?? 'unknown' })
 })
 
-// 5. Catch-all 404
+// 5. app.bsky.* + unknown XRPC → proxy to AppView (if configured)
+app.use('/xrpc/', buildProxyHandler(ctx))
+
+// 6. 404 catch-all
 app.use((_req, res) => {
   res.status(404).json({ error: 'NotFound', message: 'Unknown method or endpoint' })
 })
 
 // ---------------------------------------------------------------------------
-// HTTP server
+// HTTP server + WebSocket (subscribeRepos)
 // ---------------------------------------------------------------------------
 
 const server = http.createServer(app)
 const terminator = createHttpTerminator({ server })
+
+// Attach WS upgrade handler for com.atproto.sync.subscribeRepos
+attachSubscribeRepos(server, ctx)
 
 server.listen(cfg.service.port, () => {
   logger.info({ port: cfg.service.port, did: cfg.service.did }, 'moonstone PDS listening')
@@ -70,6 +87,7 @@ server.listen(cfg.service.port, () => {
 
 const shutdown = async (signal: string) => {
   logger.info({ signal }, 'moonstone: shutting down')
+  await ctx.sequencer.destroy()
   await terminator.terminate()
   db.close()
   process.exit(0)

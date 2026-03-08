@@ -6,6 +6,7 @@ import { EnvSchema, type MoonstoneEnv } from './env.js'
 // ---------------------------------------------------------------------------
 
 export type MoonstoneConfig = {
+  bskyAppView: { url: string; did: string } | null
   service: {
     port: number
     hostname: string
@@ -71,6 +72,9 @@ export function buildConfig(env: MoonstoneEnv): MoonstoneConfig {
       : null,
     // Opt-in only — undefined means no crawlers registered.
     crawlers: env.PDS_CRAWLERS ?? [],
+    bskyAppView: env.PDS_BSKY_APP_VIEW_URL && env.PDS_BSKY_APP_VIEW_DID
+      ? { url: env.PDS_BSKY_APP_VIEW_URL, did: env.PDS_BSKY_APP_VIEW_DID }
+      : null,
   }
 }
 

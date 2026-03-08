@@ -56,4 +56,20 @@ export class Mailer {
       text: `Your account deletion token is: ${data.token}\n\nThis token expires in 15 minutes.`,
     })
   }
+
+  sendPlcOperation(data: { token: string }, opts: { to: string }) {
+    return this.send({
+      to: opts.to,
+      subject: `Authorize PLC operation for your ${this.hostname} account`,
+      text: `Your PLC operation authorization token is: ${data.token}\n\nThis token expires in 15 minutes.`,
+    })
+  }
+
+  sendAdminEmail(data: { subject: string; content: string }, opts: { to: string }) {
+    return this.send({
+      to: opts.to,
+      subject: data.subject,
+      text: data.content,
+    })
+  }
 }

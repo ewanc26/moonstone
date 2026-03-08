@@ -42,6 +42,7 @@ export type EmailTokenPurpose =
   | 'update_email'
   | 'reset_password'
   | 'delete_account'
+  | 'plc_operation'
 
 export const INVALID_HANDLE = 'handle.invalid'
 
