@@ -7,6 +7,8 @@ import path from 'node:path'
 // ---------------------------------------------------------------------------
 
 const SCHEMA = `
+-- ── account-manager ──────────────────────────────────────────────────────
+
 CREATE TABLE IF NOT EXISTS actor (
   did           TEXT PRIMARY KEY NOT NULL,
   handle        TEXT UNIQUE,
@@ -79,12 +81,90 @@ CREATE TABLE IF NOT EXISTS reserved_keypair (
   createdAt     TEXT NOT NULL
 );
 
+-- ── actor-store (repo + records + blobs, DID-scoped in shared DB) ─────────
+
 CREATE TABLE IF NOT EXISTS repo_root (
   did       TEXT PRIMARY KEY NOT NULL,
   cid       TEXT NOT NULL,
   rev       TEXT NOT NULL,
   indexedAt TEXT NOT NULL
 );
+
+-- Raw MST + commit blocks; each block is tied to the DID that owns it.
+CREATE TABLE IF NOT EXISTS repo_block (
+  did     TEXT NOT NULL,
+  cid     TEXT NOT NULL,
+  repoRev TEXT NOT NULL,
+  size    INTEGER NOT NULL,
+  content BLOB NOT NULL,
+  PRIMARY KEY (did, cid)
+);
+CREATE INDEX IF NOT EXISTS repo_block_rev ON repo_block(did, repoRev);
+
+-- Indexed record URIs (at://did/collection/rkey)
+CREATE TABLE IF NOT EXISTS record (
+  uri        TEXT PRIMARY KEY NOT NULL,
+  did        TEXT NOT NULL,
+  cid        TEXT NOT NULL,
+  collection TEXT NOT NULL,
+  rkey       TEXT NOT NULL,
+  repoRev    TEXT NOT NULL,
+  indexedAt  TEXT NOT NULL,
+  takedownRef TEXT
+);
+CREATE INDEX IF NOT EXISTS record_did ON record(did);
+CREATE INDEX IF NOT EXISTS record_did_collection ON record(did, collection);
+
+-- Backlinks for follow/block/like/repost uniqueness enforcement
+CREATE TABLE IF NOT EXISTS backlink (
+  uri    TEXT NOT NULL,
+  path   TEXT NOT NULL,
+  linkTo TEXT NOT NULL,
+  PRIMARY KEY (uri, path)
+);
+CREATE INDEX IF NOT EXISTS backlink_path_linkto ON backlink(path, linkTo);
+
+-- Blob metadata (one row per unique CID per DID)
+CREATE TABLE IF NOT EXISTS blob (
+  did        TEXT NOT NULL,
+  cid        TEXT NOT NULL,
+  mimeType   TEXT NOT NULL,
+  size       INTEGER NOT NULL,
+  tempKey    TEXT,
+  createdAt  TEXT NOT NULL,
+  takedownRef TEXT,
+  PRIMARY KEY (did, cid)
+);
+
+-- Many-to-many: which blobs are referenced by which records
+CREATE TABLE IF NOT EXISTS record_blob (
+  did       TEXT NOT NULL,
+  blobCid   TEXT NOT NULL,
+  recordUri TEXT NOT NULL,
+  PRIMARY KEY (did, blobCid, recordUri)
+);
+CREATE INDEX IF NOT EXISTS record_blob_uri ON record_blob(recordUri);
+
+-- User preferences (app.bsky.actor.putPreferences)
+CREATE TABLE IF NOT EXISTS account_pref (
+  did     TEXT NOT NULL,
+  name    TEXT NOT NULL,
+  valueJson TEXT NOT NULL,
+  PRIMARY KEY (did, name)
+);
+
+-- ── sequencer ─────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS repo_seq (
+  seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+  did         TEXT NOT NULL,
+  eventType   TEXT NOT NULL,
+  event       BLOB NOT NULL,
+  invalidated INTEGER NOT NULL DEFAULT 0,
+  sequencedAt TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS repo_seq_did ON repo_seq(did);
+CREATE INDEX IF NOT EXISTS repo_seq_sequenced_at ON repo_seq(sequencedAt);
 `
 
 // ---------------------------------------------------------------------------

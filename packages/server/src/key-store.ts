@@ -1,5 +1,5 @@
-import { Secp256k1Keypair, EcdsaKeypair, type ExportableKeypair } from '@atproto/crypto'
-import type { Db } from '../db/index.js'
+import { Secp256k1Keypair, type ExportableKeypair } from '@atproto/crypto'
+import type { Db } from './db/index.js'
 
 /**
  * Manages per-DID signing keypairs stored in SQLite (as JWK).
@@ -55,6 +55,17 @@ export class KeyStore {
 
   clearReservedKeypair(did: string) {
     this.db.prepare(`DELETE FROM reserved_keypair WHERE did = ?`).run(did)
+  }
+
+  /**
+   * After DID:PLC creation, bind a provisional key (generated with a temporary
+   * placeholder key label) to the real DID so future lookups succeed.
+   */
+  async promoteOrAssignKeypair(keypair: ExportableKeypair, did: string): Promise<void> {
+    const jwk = await keypair.export()
+    this.db.prepare(`
+      INSERT OR REPLACE INTO signing_key (did, privateKeyJwk, createdAt) VALUES (?, ?, ?)
+    `).run(did, JSON.stringify(jwk), new Date().toISOString())
   }
 
   promoteReservedKeypair(did: string): boolean {

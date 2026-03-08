@@ -1,7 +1,10 @@
 import { Router, Request, Response } from 'express'
+import { isEmailValid } from '@hapi/address'
+import { isDisposableEmail } from 'disposable-email-domains-js'
 import { InvalidRequestError, AuthRequiredError } from '@atproto/xrpc-server'
 import type { AppContext } from '../../../../context.js'
 import { AccountStatus, formatAccountStatus, INVALID_HANDLE } from '../../../../account-manager/index.js'
+import { logger } from '../../../../logger.js'
 
 // ---------------------------------------------------------------------------
 // Utility
@@ -44,14 +47,65 @@ export function mountServerRoutes(router: Router, ctx: AppContext) {
   // ── createAccount ────────────────────────────────────────────────────────
   router.post('/xrpc/com.atproto.server.createAccount', async (req, res) => {
     try {
-      const { handle, email, password, inviteCode } = req.body ?? {}
+      const {
+        handle,
+        email,
+        password,
+        inviteCode,
+        recoveryKey,
+        // Bring-your-own-DID / migration fields
+        did: inputDid,
+      } = req.body ?? {}
+
       if (!handle) throw new InvalidRequestError('handle is required')
-      if (!email)  throw new InvalidRequestError('email is required')
-      if (!password) throw new InvalidRequestError('password is required')
 
       const normalizedHandle = ctx.accountManager.normalizeAndValidateHandle(handle)
 
-      // Check uniqueness
+      // ── Bring-your-own-DID (migration / deactivated-create) path ──────────
+      // When a `did` is provided the caller is migrating an existing account
+      // to this PDS.  We create the account in a deactivated state; the client
+      // calls activateAccount once the migration is complete.
+      if (inputDid) {
+        const signingKey = await ctx.keyStore.getOrCreateKeypair(inputDid)
+        const commit = await ctx.actorStore.transact(inputDid, signingKey, (txn) =>
+          txn.createRepo([])
+        )
+        const { accessJwt, refreshJwt } = await ctx.accountManager.createAccountAndSession({
+          did: inputDid,
+          handle: normalizedHandle,
+          email: email ?? undefined,
+          password: password ?? undefined,
+          repoCid: commit.cid.toString(),
+          repoRev: commit.rev,
+          inviteCode,
+          deactivated: true,
+        })
+        ctx.accountManager.updateRepoRoot(inputDid, commit.cid.toString(), commit.rev)
+        return res.json({
+          handle: normalizedHandle,
+          did: inputDid,
+          accessJwt,
+          refreshJwt,
+        })
+      }
+
+      // ── Normal (local) account creation ───────────────────────────────────
+      if (!email)    throw new InvalidRequestError('email is required')
+      if (!password) throw new InvalidRequestError('password is required')
+
+      // Validate email format and reject known disposable providers
+      if (!isEmailValid(email)) {
+        throw new InvalidRequestError(
+          'This email address is not supported, please use a different email.',
+        )
+      }
+      if (isDisposableEmail(email)) {
+        throw new InvalidRequestError(
+          'This email address is not supported, please use a different email.',
+        )
+      }
+
+      // Check handle + email uniqueness
       if (ctx.accountManager.getAccount(normalizedHandle)) {
         throw new InvalidRequestError(`Handle already taken: ${normalizedHandle}`)
       }
@@ -59,21 +113,79 @@ export function mountServerRoutes(router: Router, ctx: AppContext) {
         throw new InvalidRequestError(`Email already taken: ${email}`)
       }
 
-      // Create signing keypair + DID:PLC
+      // Create signing keypair
       const signingKey = await ctx.keyStore.getOrCreateKeypair(`pending-${Date.now()}`)
-      const did = `did:plc:${Buffer.from(Math.random().toString()).toString('base64url').slice(0, 24)}`
+
+      // Build rotation keys — PLC rotation key is mandatory; user's recovery key is optional
+      const rotationKeys = [ctx.plcRotationKey.did()]
+      if (recoveryKey) rotationKeys.unshift(recoveryKey)
+
+      // Create DID:PLC
+      const plc = await import('@did-plc/lib')
+      const { did: newDid, op: plcOp } = await plc.createOp({
+        signingKey: signingKey.did(),
+        rotationKeys,
+        handle: normalizedHandle,
+        pds: ctx.cfg.service.publicUrl,
+        signer: ctx.plcRotationKey,
+      })
+
+      // Submit PLC op to registry
+      const plcResp = await fetch(`${ctx.cfg.identity.plcUrl}/${newDid}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(plcOp),
+        signal: AbortSignal.timeout(10_000),
+      })
+      if (!plcResp.ok) {
+        const body = await plcResp.text()
+        logger.error({ status: plcResp.status, body }, 'failed to submit PLC op')
+        throw new InvalidRequestError(`Failed to create DID: ${body}`)
+      }
+
+      // Promote the provisional keypair to permanent ownership of this DID
+      await ctx.keyStore.promoteOrAssignKeypair(signingKey, newDid)
+
+      // Resolve DID document (best-effort; not fatal if unavailable immediately)
+      let didDoc: Record<string, unknown> | undefined
+      try {
+        const resolved = await ctx.idResolver.did.resolve(newDid)
+        if (resolved) didDoc = resolved as Record<string, unknown>
+      } catch {
+        // DID doc may not be immediately propagated — that's fine
+      }
+
+      // Create empty genesis repo commit
+      const commit = await ctx.actorStore.transact(newDid, signingKey, (txn) =>
+        txn.createRepo([])
+      )
 
       const { accessJwt, refreshJwt } = await ctx.accountManager.createAccountAndSession({
-        did,
+        did: newDid,
         handle: normalizedHandle,
         email,
         password,
-        repoCid: 'bafyreie5cvv4h45feadgeuwhbcuteh3jqskoqbsifgmn44tpbdwpkk2y5e', // genesis empty repo
-        repoRev: '0',
+        repoCid: commit.cid.toString(),
+        repoRev: commit.rev,
         inviteCode,
       })
 
-      res.json({ handle: normalizedHandle, did, accessJwt, refreshJwt })
+      // Sequence events
+      await ctx.sequencer.sequenceIdentityEvt(newDid, normalizedHandle)
+      await ctx.sequencer.sequenceAccountEvt(newDid, AccountStatus.Active)
+      await ctx.sequencer.sequenceCommit(newDid, commit)
+      ctx.accountManager.updateRepoRoot(newDid, commit.cid.toString(), commit.rev)
+
+      // Notify crawlers
+      void ctx.crawlers.notifyOfUpdate()
+
+      res.json({
+        handle: normalizedHandle,
+        did: newDid,
+        ...(didDoc ? { didDoc } : {}),
+        accessJwt,
+        refreshJwt,
+      })
     } catch (err) {
       xrpcErr(res, err)
     }
@@ -388,16 +500,18 @@ export function mountServerRoutes(router: Router, ctx: AppContext) {
         const did = res.locals.auth.credentials.did
         const activated = ctx.accountManager.isAccountActivated(did)
         const repoRoot = ctx.accountManager.getRepoRoot(did)
+        const recordCount = ctx.db.prepare(`SELECT COUNT(*) as cnt FROM record WHERE did = ?`).get(did) as { cnt: number }
+        const blobCount  = ctx.db.prepare(`SELECT COUNT(*) as cnt FROM blob    WHERE did = ?`).get(did) as { cnt: number }
         res.json({
           activated,
-          validDid: true, // caller must verify independently if needed
+          validDid: true,
           repoCommit: repoRoot?.cid ?? '',
           repoRev: repoRoot?.rev ?? '',
           repoBlocks: 0,
-          indexedRecords: 0,
+          indexedRecords: recordCount.cnt,
           privateStateValues: 0,
-          expectedBlobs: 0,
-          importedBlobs: 0,
+          expectedBlobs: blobCount.cnt,
+          importedBlobs: blobCount.cnt,
         })
       } catch (err) {
         xrpcErr(res, err)
@@ -412,6 +526,9 @@ export function mountServerRoutes(router: Router, ctx: AppContext) {
       try {
         const did = res.locals.auth.credentials.did
         ctx.accountManager.activateAccount(did)
+        // Sequence identity + account events so relays notice the activation
+        await ctx.sequencer.sequenceIdentityEvt(did)
+        await ctx.sequencer.sequenceAccountEvt(did, AccountStatus.Active)
         res.status(200).end()
       } catch (err) {
         xrpcErr(res, err)
@@ -427,6 +544,7 @@ export function mountServerRoutes(router: Router, ctx: AppContext) {
         const did = res.locals.auth.credentials.did
         const deleteAfter = req.body?.deleteAfter ?? null
         ctx.accountManager.deactivateAccount(did, deleteAfter)
+        await ctx.sequencer.sequenceAccountEvt(did, AccountStatus.Deactivated)
         res.status(200).end()
       } catch (err) {
         xrpcErr(res, err)
