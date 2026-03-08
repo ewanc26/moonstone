@@ -1,5 +1,5 @@
 {
-  "name": "@moonstone/native",
+  "name": "@ewanc26/moonstone-native",
   "version": "0.1.0",
   "description": "Rust native bindings for moonstone — syntax validation + identity resolution via rsky",
   "type": "commonjs",

@@ -1,5 +1,5 @@
 {
-  "name": "@moonstone/config",
+  "name": "@ewanc26/moonstone-config",
   "version": "0.1.0",
   "description": "Typed env config for moonstone PDS",
   "type": "module",

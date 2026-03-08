@@ -1,5 +1,5 @@
 /**
- * @moonstone/native — type declarations for the Rust native addon.
+ * @ewanc26/moonstone-native — type declarations for the Rust native addon.
  *
  * The addon is compiled from Rust (neon) and ships as `index.node`.
  * These types mirror the exported functions in packages/native/src/lib.rs.

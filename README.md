@@ -6,7 +6,7 @@ Wraps [`@atproto/pds`](https://github.com/bluesky-social/atproto) with:
 
 - **No Bluesky infra defaults** — no `api.bsky.app`, `mod.bsky.app` etc. wired in.
 - **`did:plc` supported** — via configurable `PDS_PLC_URL` (defaults to `plc.directory`, the canonical ATProto PLC registry).
-- **Rust identity layer** (`@moonstone/native`) — handle/DID syntax validation and async identity resolution backed by [`rsky-syntax`](https://github.com/blacksky-algorithms/rsky) and [`rsky-identity`](https://github.com/blacksky-algorithms/rsky) via neon N-API bindings.
+- **Rust identity layer** (`@ewanc26/moonstone-native`) — handle/DID syntax validation and async identity resolution backed by [`rsky-syntax`](https://github.com/blacksky-algorithms/rsky) and [`rsky-identity`](https://github.com/blacksky-algorithms/rsky) via neon N-API bindings.
 - **Typed, validated config** — zod schema, personal-PDS defaults, fast-fail on missing secrets.
 - **Self-contained** — all dependencies declared within this repo (git deps for rsky crates; no path deps outside the folder).
 - **NixOS module** at `nix/module.nix` — SOPS secrets, systemd service, Caddy virtualHost.
@@ -15,9 +15,9 @@ Wraps [`@atproto/pds`](https://github.com/bluesky-social/atproto) with:
 
 | Package | Description |
 | --- | --- |
-| `@moonstone/config` | Env parsing + zod validation |
-| `@moonstone/native` | Rust native addon (neon) — syntax validation + DID/handle resolution |
-| `@moonstone/server` | PDS server entry point |
+| `@ewanc26/moonstone-config` | Env parsing + zod validation |
+| `@ewanc26/moonstone-native` | Rust native addon (neon) — syntax validation + DID/handle resolution |
+| `@ewanc26/moonstone-server` | PDS server entry point |
 
 ## Quick start
 
