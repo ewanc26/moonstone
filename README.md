@@ -2,6 +2,8 @@
 
 Personal ATProto PDS — optimised for NixOS/Caddy, no Bluesky infrastructure defaults.
 
+***I DO NOT RECOMMEND YOU DEPLOY, THIS IS EXPERIMENTAL AND COMPLETELY DONE FOR FUN. I DO NOT INTEND TO MAINTAIN IT AFTER IT IS IN A WORKING STATE.***
+
 Wraps [`@atproto/pds`](https://github.com/bluesky-social/atproto) with:
 
 - **No Bluesky infra defaults** — no `api.bsky.app`, `mod.bsky.app` etc. wired in.
