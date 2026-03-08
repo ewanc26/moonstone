@@ -4,7 +4,7 @@ import {
   envToSecrets,
   httpLogger,
 } from '@atproto/pds'
-import { parseEnv, toAtprotoEnv } from '@moonstone/config'
+import { parseEnv, toAtprotoEnv } from '@ewanc26/moonstone-config'
 import { mountRoutes } from './routes.js'
 import { validateStartup } from './validate.js'
 
@@ -41,7 +41,6 @@ async function main(): Promise<void> {
       port: cfg.service.port,
       did: cfg.service.did,
       plcUrl: cfg.identity.plcUrl,
-      // Log explicitly that we're NOT connecting to Bluesky infra unless set
       bskyAppView: cfg.bskyAppView?.url ?? null,
       crawlers: cfg.crawlers ?? [],
     },

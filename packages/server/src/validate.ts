@@ -1,4 +1,4 @@
-import type { MoonstoneEnv } from '@moonstone/config'
+import type { MoonstoneEnv } from '@ewanc26/moonstone-config'
 import { httpLogger } from '@atproto/pds'
 import { createRequire } from 'node:module'
 
@@ -13,12 +13,11 @@ type NativeAddon = {
 
 function loadNative(): NativeAddon | null {
   try {
-    // Resolved relative to @moonstone/native package root
-    return require('@moonstone/native') as NativeAddon
+    return require('@ewanc26/moonstone-native') as NativeAddon
   } catch {
     httpLogger.warn(
       'moonstone-native addon not built — skipping Rust-backed startup validation. ' +
-      'Run `pnpm --filter @moonstone/native build` to enable.',
+      'Run `pnpm --filter @ewanc26/moonstone-native build` to enable.',
     )
     return null
   }
@@ -65,7 +64,6 @@ export async function validateStartup(env: MoonstoneEnv): Promise<void> {
       if (doc) {
         httpLogger.info({ did }, 'moonstone: DID document found')
       } else {
-        // Not found is expected for a brand-new PDS — warn but don't abort.
         httpLogger.warn(
           { did, plcUrl },
           'moonstone: DID document not yet registered — expected for first-time setup',

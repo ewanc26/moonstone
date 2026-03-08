@@ -3,4 +3,4 @@ packages:
 
 onlyBuiltDependencies:
   - esbuild
-  - "@moonstone/native"
+  - "@ewanc26/moonstone-native"

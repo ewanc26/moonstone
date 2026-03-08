@@ -7,11 +7,11 @@
     "pnpm": ">=9"
   },
   "scripts": {
-    "build:native": "pnpm --filter @moonstone/native build",
-    "build:ts": "pnpm -r --filter '!@moonstone/native' run build",
+    "build:native": "pnpm --filter @ewanc26/moonstone-native build",
+    "build:ts": "pnpm -r --filter '!@ewanc26/moonstone-native' run build",
     "build": "pnpm run build:native && pnpm run build:ts",
-    "dev": "pnpm run build:native && pnpm -r --filter '!@moonstone/native' run dev",
-    "type-check": "pnpm -r --filter '!@moonstone/native' run type-check",
-    "clean": "pnpm -r exec -- rm -rf dist && pnpm --filter @moonstone/native clean"
+    "dev": "pnpm run build:native && pnpm -r --filter '!@ewanc26/moonstone-native' run dev",
+    "type-check": "pnpm -r --filter '!@ewanc26/moonstone-native' run type-check",
+    "clean": "pnpm -r exec -- rm -rf dist && pnpm --filter @ewanc26/moonstone-native clean"
   }
 }
