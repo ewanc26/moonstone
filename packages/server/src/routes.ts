@@ -1,50 +1,28 @@
-import type { PDS } from '@atproto/pds'
-import type { Request, Response } from 'express'
-import { httpLogger } from '@atproto/pds'
+import { Application } from 'express'
+import tls from 'node:tls'
+import https from 'node:https'
+import type { AppContext } from './context.js'
 
-// ---------------------------------------------------------------------------
-// Extra HTTP routes
-// ---------------------------------------------------------------------------
-
-export function mountRoutes(pds: PDS): void {
-  // /tls-check — required by goat tooling and Bluesky-compatible crawlers.
-  // Mirrors the implementation from github.com/bluesky-social/pds exactly so
-  // that crawlers can verify handle domains hosted on this PDS.
-  pds.app.get('/tls-check', async (req: Request, res: Response) => {
-    try {
-      const { domain } = req.query
-      if (!domain || typeof domain !== 'string') {
-        return res
-          .status(400)
-          .json({ error: 'InvalidRequest', message: 'bad or missing domain query param' })
-      }
-
-      if (domain === pds.ctx.cfg.service.hostname) {
-        return res.json({ success: true })
-      }
-
-      const isHostedHandle = pds.ctx.cfg.identity.serviceHandleDomains.find(
-        (avail) => domain.endsWith(avail),
-      )
-      if (!isHostedHandle) {
-        return res
-          .status(400)
-          .json({ error: 'InvalidRequest', message: 'handles are not provided on this domain' })
-      }
-
-      const account = await pds.ctx.accountManager.getAccount(domain)
-      if (!account) {
-        return res
-          .status(404)
-          .json({ error: 'NotFound', message: 'handle not found for this domain' })
-      }
-
-      return res.json({ success: true })
-    } catch (err) {
-      httpLogger.error({ err }, 'tls-check failed')
-      return res
-        .status(500)
-        .json({ error: 'InternalServerError', message: 'Internal Server Error' })
+/**
+ * Mount non-XRPC routes that are not covered by the ATProto lexicons.
+ * Currently: /tls-check (mirrors the official pds-main implementation).
+ */
+export function mountRoutes(app: Application, ctx: AppContext) {
+  app.get('/tls-check', (_req, res) => {
+    const hostname = ctx.cfg.service.hostname
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return res.json({ hostname, tlsVersion: 'n/a (localhost)' })
     }
+    const socket = tls.connect({ host: hostname, port: 443, servername: hostname }, () => {
+      const info = {
+        hostname,
+        tlsVersion: socket.getProtocol() ?? 'unknown',
+      }
+      socket.destroy()
+      res.json(info)
+    })
+    socket.on('error', (err) => {
+      res.status(500).json({ error: 'TLS check failed', message: String(err) })
+    })
   })
 }
