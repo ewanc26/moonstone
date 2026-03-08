@@ -4,7 +4,7 @@
 #  Drop-in replacement for modules/server/pds.nix in nix-config.
 #
 #  Architecture (unchanged from existing pds.nix):
-#    moonstone PDS (127.0.0.1:cfg.pds.port)
+#    moonstone-pds (127.0.0.1:cfg.pds.port)
 #      ↑ reverse proxy
 #    Caddy (cfg.pds.caddyPort)
 #      ↑ Cloudflare tunnel
@@ -75,21 +75,21 @@ lib.mkIf cfg.services.pds.enable {
   users.users.moonstone = {
     isSystemUser = true;
     group        = "moonstone";
-    home         = "/srv/bluesky-pds";
+    home         = "/srv/moonstone-pds";
     createHome   = false;
   };
   users.groups.moonstone = {};
 
   systemd.services.moonstone-pds = {
-    description = "moonstone ATProto PDS";
+    description = "moonstone-pds ATProto Personal Data Server";
     after       = [ "network.target" "srv.mount" ];
     wants       = [ "srv.mount" ];
     wantedBy    = [ "multi-user.target" ];
 
     environment = {
-      PDS_HOSTNAME              = pds.hostname;
-      PDS_PORT                  = pdsPort;
-      PDS_DATA_DIRECTORY        = "/srv/bluesky-pds";
+      PDS_HOSTNAME               = pds.hostname;
+      PDS_PORT                   = pdsPort;
+      PDS_DATA_DIRECTORY         = "/srv/moonstone-pds";
       PDS_SERVICE_HANDLE_DOMAINS = lib.concatStringsSep "," pds.serviceHandleDomains;
       # Crawlers are opt-in; don't set unless you want relay federation.
       # Uncomment to enable: PDS_CRAWLERS = "https://bsky.network";
@@ -105,7 +105,7 @@ lib.mkIf cfg.services.pds.enable {
       ExecStart       = "${moonstoneServer}/bin/moonstone-pds";
       Restart         = "always";
       RestartSec      = cfg.server.servicePolicy.restartSec;
-      ReadWritePaths  = [ "/srv/bluesky-pds" ];
+      ReadWritePaths  = [ "/srv/moonstone-pds" ];
 
       # Hardening
       NoNewPrivileges = true;
@@ -128,10 +128,10 @@ lib.mkIf cfg.services.pds.enable {
 
       redir /index.html / permanent
 
-      @pds not file {
+      @moonstone not file {
         try_files {path} {path}/index.html
       }
-      handle @pds {
+      handle @moonstone {
         reverse_proxy http://127.0.0.1:${pdsPort}
       }
 
