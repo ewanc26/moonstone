@@ -1,8 +1,7 @@
 import type { MoonstoneEnv } from '@ewanc26/moonstone-config'
-import { httpLogger } from '@atproto/pds'
+import { logger } from './logger.js'
 import { createRequire } from 'node:module'
 
-// The native addon is CommonJS (neon constraint), so we load it via createRequire.
 const require = createRequire(import.meta.url)
 
 type NativeAddon = {
@@ -15,22 +14,13 @@ function loadNative(): NativeAddon | null {
   try {
     return require('@ewanc26/moonstone-native') as NativeAddon
   } catch {
-    httpLogger.warn(
+    logger.warn(
       'moonstone-native addon not built — skipping Rust-backed startup validation. ' +
       'Run `pnpm --filter @ewanc26/moonstone-native build` to enable.',
     )
     return null
   }
 }
-
-// ---------------------------------------------------------------------------
-// Startup validation
-// ---------------------------------------------------------------------------
-// Uses the Rust native addon (rsky-syntax + rsky-identity) to:
-//  1. Validate PDS_HOSTNAME as an ATProto handle
-//  2. Validate the derived service DID
-//  3. Optionally verify the PDS's own DID document is reachable
-//     (skipped if PDS_DEV_MODE=true to allow localhost dev setups)
 
 export async function validateStartup(env: MoonstoneEnv): Promise<void> {
   const native = loadNative()
@@ -41,41 +31,31 @@ export async function validateStartup(env: MoonstoneEnv): Promise<void> {
   const plcUrl = env.PDS_PLC_URL
   const devMode = env.PDS_DEV_MODE
 
-  // 1. Syntax check the hostname as a handle
   try {
     native.ensureValidHandle(hostname)
   } catch (e) {
     throw new Error(`PDS_HOSTNAME "${hostname}" is not a valid ATProto handle: ${(e as Error).message}`)
   }
 
-  // 2. Syntax check the service DID
   try {
     native.ensureValidDid(did)
   } catch (e) {
     throw new Error(`Service DID "${did}" is invalid: ${(e as Error).message}`)
   }
 
-  // 3. In non-dev mode, attempt to resolve the DID document to catch misconfig
-  //    before the PDS tries to register with the PLC directory.
   if (!devMode) {
-    httpLogger.info({ did, plcUrl }, 'moonstone: resolving PDS DID document for pre-flight check')
+    logger.info({ did, plcUrl }, 'moonstone: resolving PDS DID document for pre-flight check')
     try {
       const doc = await native.resolveDid(did, plcUrl, 5000)
       if (doc) {
-        httpLogger.info({ did }, 'moonstone: DID document found')
+        logger.info({ did }, 'moonstone: DID document found')
       } else {
-        httpLogger.warn(
-          { did, plcUrl },
-          'moonstone: DID document not yet registered — expected for first-time setup',
-        )
+        logger.warn({ did, plcUrl }, 'moonstone: DID document not yet registered — expected for first-time setup')
       }
     } catch (e) {
-      httpLogger.warn(
-        { did, err: (e as Error).message },
-        'moonstone: DID resolution failed during startup — continuing anyway',
-      )
+      logger.warn({ did, err: (e as Error).message }, 'moonstone: DID resolution failed during startup — continuing anyway')
     }
   }
 
-  httpLogger.info({ hostname, did }, 'moonstone: startup validation passed')
+  logger.info({ hostname, did }, 'moonstone: startup validation passed')
 }
